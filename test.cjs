@@ -15,14 +15,14 @@ class Element {
   showModal() { this.open = true; }
   close() { this.open = false; }
   setCustomValidity(error) { this.error = error; }
-  reportValidity() { return !this.elements.title.error; }
+  reportValidity() { return !Object.values(this.elements).some(input => input.error); }
   click() { this.clicked = true; }
 }
 function load(saved, failStorage = false, savedLyrics) {
   const nodes = {};
   for (const id of ['home','lyrics','list','status','dialog','form','form-title','edit','editor','add','cancel','reset','export','import','import-file','lyrics-title','lyrics-meta','lyrics-text','lyrics-empty','lyrics-search','lyrics-edit','lyrics-form','lyrics-cancel','prev','next','smaller','larger']) nodes[id] = new Element();
   nodes.lyrics.hidden = true;
-  nodes.form.elements = Object.fromEntries(['title','artist','note','category','highlight'].map(key => [key, new Element()]));
+  nodes.form.elements = Object.fromEntries(['title','artist','note','sheet','category','highlight'].map(key => [key, new Element()]));
   nodes['lyrics-form'].elements = { text: new Element() };
   const store = {};
   if (saved !== undefined) store[KEY] = saved;
@@ -77,7 +77,9 @@ test('損壞資料與儲存失敗提供提示，空白歌名不可儲存', () =>
 test('歌詞：點歌名開啟、儲存、標記、換歌、字級、清除；禁歌不開', () => {
   const app = load(); const n = app.nodes; const text = n['lyrics-form'].elements.text;
   const firstRow = () => n.list.children[0].children[1].children[0];
-  assert.equal(firstRow().children[0].href,'#l/p0');
+  const search = 'https://www.google.com/search?q=' + encodeURIComponent('愛你一萬年 歌詞');
+  assert.deepEqual([firstRow().children[0].href,firstRow().children[0].target],[search,'_blank']);
+  assert.equal(n.list.children[0].children[1].children[3].children[0].href,'https://www.google.com/search?q=' + encodeURIComponent('小姐請你給我愛 羅時豐 歌詞'));
   assert.equal(n.list.children[2].children[1].children[0].children[0].href,undefined);
   app.go('#l/p0');
   assert.deepEqual([n.home.hidden,n.lyrics.hidden],[true,false]);
@@ -90,6 +92,7 @@ test('歌詞：點歌名開啟、儲存、標記、換歌、字級、清除；�
   assert.deepEqual(app.lyrics(),{p0:'第一行\n第二行'});
   assert.deepEqual([n['lyrics-text'].textContent,n['lyrics-text'].hidden,n['lyrics-form'].hidden],['第一行\n第二行',false,true]);
   assert.equal(firstRow().className,'has-lyrics');
+  assert.deepEqual([firstRow().children[0].href,firstRow().children[0].target],['#l/p0',undefined]);
   assert.deepEqual(load(undefined,false,app.storedLyrics()).lyrics(),{p0:'第一行\n第二行'});
   n.next.onclick(); assert.equal(n['lyrics-title'].textContent,'月亮代表我的心');
   app.go('#l/p15'); assert.equal(n.next.textContent,'你是我的兄弟 →');
@@ -124,4 +127,25 @@ test('匯出含歌詞、匯入取代、舊格式保留歌詞、壞檔與取消�
   other.confirm(true); other.nodes.edit.onclick({currentTarget:other.nodes.edit});
   other.nodes.list.children[0].children[1].children[0].children.at(-1).children[2].onclick();
   assert.equal(other.songs().length,2); assert.deepEqual(other.lyrics(),{}); assert.deepEqual(JSON.parse(other.storedLyrics()),{});
+});
+test('我的歌譜連結：只收 http(s)、顯示於歌單、舊資料相容；編輯模式可直接貼歌詞', () => {
+  const app = load(); const n = app.nodes; const f = n.form.elements;
+  n.edit.onclick({currentTarget:n.edit});
+  const firstRow = () => n.list.children[0].children[1].children[0];
+  firstRow().children.at(-1).children[0].onclick(); assert.equal(f.sheet.value,'');
+  f.sheet.value = 'javascript:alert(1)'; n.form.onsubmit(submit);
+  assert.equal(app.songs()[0].sheet,undefined); assert.match(f.sheet.error,/http/);
+  f.sheet.value = '  https://drive.google.com/file/d/abc/view  '; f.sheet.oninput(); n.form.onsubmit(submit);
+  assert.equal(app.songs()[0].sheet,'https://drive.google.com/file/d/abc/view');
+  const link = firstRow().children[1];
+  assert.deepEqual([link.textContent,link.href,link.target,link.rel],['我的歌譜','https://drive.google.com/file/d/abc/view','_blank','noopener']);
+  assert.equal(load(app.stored()).songs()[0].sheet,'https://drive.google.com/file/d/abc/view');
+  const bad = app.songs(); bad[1].sheet = 'javascript:alert(1)';
+  assert.equal(load(JSON.stringify(bad)).nodes.status.hidden,false);
+  const words = firstRow().children.at(-1).children[3];
+  assert.equal(words.textContent,'貼上歌詞');
+  assert.equal(n.list.children[2].children[1].children[0].children.at(-1).children.length,3);
+  words.onclick(); app.go('#l/p0');
+  assert.deepEqual([n.lyrics.hidden,n['lyrics-form'].hidden],[false,false]);
+  app.go(''); app.go('#l/p0'); assert.equal(n['lyrics-form'].hidden,true);
 });

@@ -1,6 +1,8 @@
 const KEY = 'leo-songlist-v1';
 const LYRICS_KEY = 'leo-songlist-lyrics-v1';
 const SIZE_KEY = 'leo-songlist-lyrics-size';
+// 歌譜連結只收 http(s)，擋掉匯入檔裡可能夾帶的 javascript: 之類網址
+const LINK = /^https?:\/\//i;
 const categories = { personal: '個人曲目', group: '團體曲目', banned: '禁歌 · 不能唱' };
 const home = document.querySelector('#home');
 const view = document.querySelector('#lyrics');
@@ -20,9 +22,10 @@ let current = null;
 let homeScroll = 0;
 let wake = null;
 let size = 30;
+let openEditor = false;
 function notify(message) { status.textContent = message; status.hidden = false; }
 function validSongs(value) {
-  return Array.isArray(value) && value.every(song => song && typeof song.id === 'string' && Object.hasOwn(categories, song.category) && typeof song.title === 'string' && song.title.trim() && typeof song.artist === 'string' && typeof song.note === 'string' && typeof song.highlight === 'boolean') && new Set(value.map(song => song.id)).size === value.length;
+  return Array.isArray(value) && value.every(song => song && typeof song.id === 'string' && Object.hasOwn(categories, song.category) && typeof song.title === 'string' && song.title.trim() && typeof song.artist === 'string' && typeof song.note === 'string' && typeof song.highlight === 'boolean' && (song.sheet === undefined || song.sheet === '' || typeof song.sheet === 'string' && LINK.test(song.sheet))) && new Set(value.map(song => song.id)).size === value.length;
 }
 function validLyrics(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(text => typeof text === 'string');
@@ -61,11 +64,15 @@ function element(tag, text, className) {
   if (className) node.className = className;
   return node;
 }
+function searchUrl(song) {
+  return 'https://www.google.com/search?q=' + encodeURIComponent([song.title, song.artist, '歌詞'].filter(Boolean).join(' '));
+}
+function external(link, url) { link.href = url; link.target = '_blank'; link.rel = 'noopener'; }
 function openForm(song) {
   selectedId = song?.id ?? null;
   form.reset();
   document.querySelector('#form-title').textContent = song ? '修改歌曲' : '新增歌曲';
-  for (const key of ['title', 'artist', 'note', 'category']) form.elements[key].value = song?.[key] ?? (key === 'category' ? 'personal' : '');
+  for (const key of ['title', 'artist', 'note', 'sheet', 'category']) form.elements[key].value = song?.[key] ?? (key === 'category' ? 'personal' : '');
   form.elements.highlight.checked = song?.highlight ?? false;
   dialog.showModal();
   form.elements.title.focus();
@@ -81,10 +88,17 @@ function render() {
       // 禁歌不能唱，編輯中點歌名也不該跳走，所以這兩種情況不做成連結
       const linked = !editing && category !== 'banned';
       const title = element(linked ? 'a' : 'div', song.title, 'song-title');
-      if (linked) title.href = '#l/' + encodeURIComponent(song.id);
+      // 這台裝置存了歌詞就開歌詞頁，沒存就直接去搜尋，新裝置不必先輸入任何東西
+      if (linked && lyrics[song.id]) title.href = '#l/' + encodeURIComponent(song.id);
+      else if (linked) external(title, searchUrl(song));
       li.append(title);
       if (song.artist) li.append(element('div', song.artist, 'details'));
       if (song.note) li.append(element('div', song.note, 'details note'));
+      if (song.sheet) {
+        const sheet = element('a', '我的歌譜', 'details sheet');
+        external(sheet, song.sheet);
+        li.append(sheet);
+      }
       if (editing) {
         const actions = element('div', undefined, 'actions');
         const modify = element('button', '修改');
@@ -103,6 +117,12 @@ function render() {
           save();
         };
         actions.append(modify, highlight, remove);
+        if (category !== 'banned') {
+          const words = element('button', lyrics[song.id] ? '編輯歌詞' : '貼上歌詞');
+          words.setAttribute('aria-label', (lyrics[song.id] ? '編輯歌詞 ' : '貼上歌詞 ') + song.title);
+          words.onclick = () => { openEditor = true; location.hash = '#l/' + encodeURIComponent(song.id); };
+          actions.append(words);
+        }
         li.append(actions);
       }
       ul.append(li);
@@ -123,7 +143,7 @@ function showLyrics(song) {
   lyricsText.hidden = !text;
   lyricsEmpty.hidden = Boolean(text);
   lyricsForm.hidden = true;
-  document.querySelector('#lyrics-search').href = 'https://www.google.com/search?q=' + encodeURIComponent([song.title, song.artist, '歌詞'].filter(Boolean).join(' '));
+  document.querySelector('#lyrics-search').href = searchUrl(song);
   document.querySelector('#lyrics-edit').textContent = text ? '編輯歌詞' : '貼上歌詞';
   const order = singable();
   const index = order.indexOf(song);
@@ -148,8 +168,9 @@ function route() {
   if (song && view.hidden) homeScroll = window.scrollY ?? 0;
   home.hidden = Boolean(song);
   view.hidden = !song;
-  if (song) { showLyrics(song); window.scrollTo?.(0, 0); keepAwake(); }
+  if (song) { showLyrics(song); window.scrollTo?.(0, 0); keepAwake(); if (openEditor) document.querySelector('#lyrics-edit').onclick(); }
   else { current = null; releaseWake(); window.scrollTo?.(0, homeScroll); }
+  openEditor = false;
 }
 function setSize(value) {
   size = Math.min(72, Math.max(18, value));
@@ -169,14 +190,17 @@ form.onsubmit = event => {
   event.preventDefault();
   const title = form.elements.title.value.trim();
   form.elements.title.setCustomValidity(title ? '' : '請輸入歌名');
+  const sheet = form.elements.sheet.value.trim();
+  form.elements.sheet.setCustomValidity(!sheet || LINK.test(sheet) ? '' : '請貼上 http 或 https 開頭的連結');
   if (!form.reportValidity()) return;
-  const song = { id: selectedId ?? crypto.randomUUID(), category: form.elements.category.value, title, artist: form.elements.artist.value.trim(), note: form.elements.note.value.trim(), highlight: form.elements.highlight.checked };
+  const song = { id: selectedId ?? crypto.randomUUID(), category: form.elements.category.value, title, artist: form.elements.artist.value.trim(), note: form.elements.note.value.trim(), sheet, highlight: form.elements.highlight.checked };
   if (selectedId) songs = songs.map(item => item.id === selectedId ? song : item);
   else songs.push(song);
   dialog.close();
   save();
 };
 form.elements.title.oninput = () => form.elements.title.setCustomValidity('');
+form.elements.sheet.oninput = () => form.elements.sheet.setCustomValidity('');
 document.querySelector('#reset').onclick = () => {
   if (!confirm('確定還原成預設歌單？此瀏覽器中的新增、修改及刪除紀錄將被取代（已存的歌詞會保留）。建議先匯出備份。')) return;
   songs = structuredClone(window.DEFAULT_SONGS);
