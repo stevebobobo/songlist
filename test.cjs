@@ -44,7 +44,7 @@ test('預設資料保留原始筆記與新增曲目', () => {
   assert.deepEqual(['personal','group','banned'].map(category => songs.filter(song => song.category === category).length),[16,5,1]);
   assert.equal(songs.find(song => song.title === '感恩的心').note,'KEY很高');
   assert.deepEqual(songs.filter(song => song.artist === '羅時豐').map(song => song.title),['小姐請你給我愛','心肝丟三下']);
-  assert.deepEqual(songs.filter(song => song.artist === '李聖傑').map(song => song.title),['My Love','聽我愛妳']);
+  assert.deepEqual(songs.filter(song => song.artist === '李聖傑').map(song => song.title),['我們相愛吧 My Love','聽我愛妳']);
   assert.equal(songs.find(song => song.title === '做事人').artist,'美秀集團');
   assert.equal(songs.find(song => song.title === '愛情限時批').artist,'伍佰');
   assert.equal(songs.find(song => song.title === '鋼鐵男子 Iron Man').artist,'伍佰');

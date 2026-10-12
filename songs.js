@@ -42,7 +42,7 @@ window.DEFAULT_SONGS = [
   {
     "id": "p5",
     "category": "personal",
-    "title": "My Love",
+    "title": "我們相愛吧 My Love",
     "artist": "李聖傑",
     "note": "",
     "highlight": false
